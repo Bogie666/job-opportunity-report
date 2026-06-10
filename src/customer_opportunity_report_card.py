@@ -623,6 +623,26 @@ def deterministic_sections(d: dict) -> dict:
 # --------------------------------------------------------------------------- render
 
 def render_markdown(d: dict, sections: dict) -> str:
+    fallback_sections = deterministic_sections(d)
+    if not sections.get("primary_opportunities"):
+        sections["primary_opportunities"] = fallback_sections.get("primary_opportunities") or []
+    elif len(sections.get("primary_opportunities") or []) < 2:
+        existing = {str(o.get("title") or "").strip().lower() for o in sections.get("primary_opportunities") or []}
+        for opp in fallback_sections.get("primary_opportunities") or []:
+            title = str(opp.get("title") or "").strip().lower()
+            if title and title not in existing:
+                sections["primary_opportunities"].append(opp)
+                break
+    sections.setdefault("overall", {})
+    if not sections["overall"].get("secondary_opportunity"):
+        fb_overall = fallback_sections.get("overall") or {}
+        fb_opps = fallback_sections.get("primary_opportunities") or []
+        sections["overall"]["secondary_opportunity"] = (
+            (sections.get("primary_opportunities") or [{}])[1].get("title")
+            if len(sections.get("primary_opportunities") or []) > 1
+            else fb_overall.get("secondary_opportunity")
+            or (fb_opps[1].get("title") if len(fb_opps) > 1 else "Verify-on-arrival opportunity review")
+        )
     meta, facts, job = d["meta"], d["facts"], d["job"]
     customer = d["customer"]
     sold = d["sold"]

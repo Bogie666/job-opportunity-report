@@ -41,12 +41,13 @@ def load_env(path: str, *, override: bool = False) -> None:
 
 
 def load_default_env() -> None:
-    """Load the shared credential vault then the repo-local .env.
+    """Load shared credential vaults then the repo-local .env.
 
     Called explicitly by entrypoints that need API credentials — importing this
     module no longer reads credential files as a side effect.
     """
     load_env("/workspace/openclaw/MOVING/credentials/MASTER.env")
+    load_env("/workspace/.secrets/hermes.env")
     load_env(str(Path(__file__).resolve().parents[1] / ".env"), override=True)
 
 

@@ -24,6 +24,7 @@ secrets/
 
 # ServiceTitan data dumps contain real customer PII — never commit
 data/
+out/
 logs/
 *.log
 
