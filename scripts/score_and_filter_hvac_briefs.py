@@ -27,6 +27,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from serial_decoder import decode_serial  # noqa: E402  brand-aware decoder
+
 
 def _status(e):
     s = e.get("status")
@@ -43,22 +45,32 @@ YEAR_RE = re.compile(r"(20\d{2}|19\d{2})")
 
 
 def _equip_ages(equipment):
+    """Return ages (years) of active equipment.
+
+    Priority: installedOn date → brand-aware serial decoder.
+    Naive WWYY-on-everything regex removed — it mis-decoded Trane/Lennox/Rheem
+    YYWW serials as 20-year-old equipment (e.g. Trane '22085' → 2008 instead
+    of 2022). See src/serial_decoder.py for the brand-aware rules.
+    """
     now_year = datetime.now(timezone.utc).year
     ages = []
     for eq in equipment or []:
         if not eq.get("active", True):
             continue
+        year = None
         iso = eq.get("installedOn") or ""
         m = YEAR_RE.search(str(iso))
-        year = int(m.group(1)) if m else None
+        if m:
+            year = int(m.group(1))
         if not year:
+            mfg = eq.get("manufacturer")
+            if isinstance(mfg, dict):
+                mfg = mfg.get("name") or ""
             serial = str(eq.get("serialNumber") or "")
-            mm = re.match(r"(\d{2})(\d{2})", serial)
-            if mm:
-                wk, yr = int(mm.group(1)), int(mm.group(2))
-                if 1 <= wk <= 53 and 0 <= yr <= 40:
-                    year = 2000 + yr
-        if year and 2000 <= year <= now_year:
+            decoded = decode_serial(str(mfg or ""), serial)
+            if decoded:
+                year = decoded[0]
+        if year and 1990 <= year <= now_year:
             ages.append(now_year - year)
     return ages
 
