@@ -21,6 +21,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--manifest", required=True)
     ap.add_argument("--selected", required=True, help="JSON file with list of dicts containing 'job_id' field")
+    ap.add_argument("--briefs-dir", help="Dossier run dir (data/tech_briefs/<STAMP>) — adds per-job ST context to ground the vision review")
     args = ap.parse_args()
 
     import os
@@ -34,6 +35,7 @@ def main():
     out_dir.mkdir(exist_ok=True)
     wanted = {str(r.get("job_id")) for r in json.loads(Path(args.selected).read_text())}
     print(f"Selected jobs to vision-review: {sorted(wanted)}")
+    contexts = az.load_job_contexts(Path(args.briefs_dir) if args.briefs_dir else None)
 
     results = []
     for rec in data["manifest"]:
@@ -49,7 +51,7 @@ def main():
             continue
         sheet_path = (ROOT / sheet) if not Path(sheet).is_absolute() else Path(sheet)
         print("analyzing", job_id, sheet_path)
-        text = az.call_vision(key, sheet_path, job_id)
+        text = az.call_vision(key, sheet_path, job_id, contexts.get(job_id, ""))
         cleaned = text.strip()
         if cleaned.startswith("```"):
             cleaned = cleaned.split("```", 2)[1]

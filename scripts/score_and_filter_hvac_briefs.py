@@ -1,19 +1,22 @@
 #!/usr/bin/env python3
 """Score HVAC tech-brief dossiers for opportunity potential and pick the ones worth
-sending an email report card on. Pure-deterministic scoring — no LLM calls.
+sending an email report card on. Pure-deterministic scoring — no LLM calls. This
+scorer is the gate that decides which jobs get LLM report-card synthesis spend.
 
-Outputs scoring TSV + a JSON list of the chosen job IDs.
+Outputs scoring TSV + a JSON list of the chosen job IDs. Pair with
+scripts/log_outcomes.py, which joins these scores against realized revenue after
+the visits so the weights below can be calibrated against reality.
 
-Heuristics (tweakable):
-- HVAC equipment 10+ yrs → +25
-- Equipment 15+ yrs → +35
+Heuristics (tweakable — see src/opportunity_flags.py for the age-tier rules):
+- Equipment past per-class replacement threshold → +25 (urgent tier → +35)
+- Home-age tier: 10-30 yrs → +5, 30-45 yrs → +10, 45+ yrs → +15
 - Active membership → +10
-- 1+ open estimate → +10 each (cap 30)
+- 1+ open estimate → +5 each (cap 30)
 - Open estimate total ≥ $5k → +20
 - Sold estimate history ≥ $10k → +15
 - Photos available (contact sheet) → +10
 - Booking-note repair recommendation keywords → +15
-- "Older system / replace" booking-note signals → +10
+- "Older system" booking-note age signal (no equipment dates) → +20/+30
 """
 from __future__ import annotations
 
@@ -27,6 +30,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from opportunity_flags import (  # noqa: E402
+    equipment_age_flag,
+    equipment_flag_score,
+    home_age_flags,
+    home_age_score,
+)
 from serial_decoder import decode_serial  # noqa: E402  brand-aware decoder
 
 
@@ -44,16 +53,16 @@ def _money(rows, status_filter):
 YEAR_RE = re.compile(r"(20\d{2}|19\d{2})")
 
 
-def _equip_ages(equipment):
-    """Return ages (years) of active equipment.
+def _equip_age_records(equipment):
+    """Return (type/name blob, age years) for each active piece of equipment.
 
-    Priority: installedOn date → brand-aware serial decoder.
+    Age priority: installedOn date → brand-aware serial decoder.
     Naive WWYY-on-everything regex removed — it mis-decoded Trane/Lennox/Rheem
     YYWW serials as 20-year-old equipment (e.g. Trane '22085' → 2008 instead
     of 2022). See src/serial_decoder.py for the brand-aware rules.
     """
     now_year = datetime.now(timezone.utc).year
-    ages = []
+    records = []
     for eq in equipment or []:
         if not eq.get("active", True):
             continue
@@ -71,8 +80,28 @@ def _equip_ages(equipment):
             if decoded:
                 year = decoded[0]
         if year and 1990 <= year <= now_year:
-            ages.append(now_year - year)
-    return ages
+            type_field = eq.get("type")
+            if isinstance(type_field, dict):
+                type_field = type_field.get("name") or ""
+            blob = f"{type_field or ''} {eq.get('name') or ''}"
+            records.append((blob, now_year - year))
+    return records
+
+
+def _home_built_year(dossier):
+    """Home build year from ST location custom fields only — no network lookups
+    in the scorer (the CAD resolver runs later, in the report-card stage)."""
+    location = dossier.get("location") or {}
+    for cf in location.get("customFields") or []:
+        name = (cf.get("name") or "").lower()
+        val = str(cf.get("value") or "")
+        if not val:
+            continue
+        if "age of home" in name or "year built" in name:
+            m = YEAR_RE.search(val)
+            if m:
+                return int(m.group(1))
+    return None
 
 
 REPAIR_KEYWORDS = re.compile(
@@ -96,17 +125,16 @@ def score_bundle(bundle, photos_have_sheet):
     score = 0
     drivers = []
 
-    ages = _equip_ages(equipment)
-    max_age = max(ages) if ages else None
-    if max_age is not None:
-        if max_age >= 15:
-            score += 35
-            drivers.append(f"equip {max_age}y (15+)")
-        elif max_age >= 10:
-            score += 25
-            drivers.append(f"equip {max_age}y (10+)")
+    records = _equip_age_records(equipment)
+    max_age = max((age for _, age in records), default=None)
+    equip_flags = [f for f in (equipment_age_flag(blob, age) for blob, age in records) if f]
+    flag_points = equipment_flag_score(equip_flags)
+    if flag_points:
+        score += flag_points
+        worst = max(equip_flags, key=lambda f: (f["severity"] == "urgent", f["age"]))
+        drivers.append(f"{worst['label']} {worst['age']}y ({worst['severity']}, +{flag_points})")
 
-    if not ages or max_age is None:
+    if not records:
         m = OLDER_KEYWORDS.search(summary)
         if m:
             try:
@@ -119,6 +147,13 @@ def score_bundle(bundle, photos_have_sheet):
                     drivers.append(f"notes ~{yrs}y old")
             except Exception:
                 pass
+
+    built_year = _home_built_year(dossier)
+    home_flags = home_age_flags(built_year)
+    home_points = home_age_score(home_flags)
+    if home_points:
+        score += home_points
+        drivers.append(f"home built {built_year} (+{home_points})")
 
     active_m = any(str(m.get("status") or "").lower() == "active" for m in memberships)
     if active_m:
@@ -156,6 +191,7 @@ def score_bundle(bundle, photos_have_sheet):
         "drivers": ", ".join(drivers),
         "has_photos": photos_have_sheet,
         "max_equip_age": max_age,
+        "home_built_year": built_year,
         "open_estimate_count": len(open_rows),
         "open_estimate_total": int(open_total),
         "sold_estimate_total": int(sold_total),
@@ -193,8 +229,8 @@ def main(run_dir: Path, manifest_path: Path, threshold: int = 35, top_n: int = 1
     tsv_path = out_dir / "scores.tsv"
     fields = [
         "job_number", "score", "job_type", "customer", "drivers", "has_photos",
-        "max_equip_age", "open_estimate_count", "open_estimate_total", "sold_estimate_total",
-        "active_membership", "job_id", "dossier_json",
+        "max_equip_age", "home_built_year", "open_estimate_count", "open_estimate_total",
+        "sold_estimate_total", "active_membership", "job_id", "dossier_json",
     ]
     with tsv_path.open("w") as f:
         w = csv.DictWriter(f, fieldnames=fields, delimiter="\t")

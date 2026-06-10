@@ -26,7 +26,7 @@ def test_pat_report_card_prioritizes_remaining_system_over_iaq():
             {"finding": "ductwork appears poorly sealed and potentially leaking", "confidence": "medium"},
         ],
     }
-    md = build_report_card(bundle, vision=vision, lifetime_revenue=39755)
+    md = build_report_card(bundle, vision=vision, lifetime_revenue=39755, use_llm=False)
     assert "# CUSTOMER OPPORTUNITY REPORT CARD" in md
     assert "**Lifetime Revenue:** $39,755" in md
     assert "Remaining older" in md
@@ -44,7 +44,7 @@ def test_report_card_marks_historical_photo_findings_verify_first():
     md = build_report_card(bundle, vision={
         "photo_source_note": "Historical photos from prior location jobs; verify on arrival",
         "findings": [{"finding": "rust visible on drain pan", "confidence": "medium"}],
-    })
+    }, use_llm=False)
     assert "Verify photo finding before recommending: rust visible on drain pan" in md
     assert "not confident recommendations" in md
 
@@ -68,7 +68,7 @@ def test_equipment_age_summary_always_appears_in_customer_profile():
             ],
         },
     }
-    md = build_report_card(bundle)
+    md = build_report_card(bundle, use_llm=False)
     assert "Equipment age on file" in md
     assert "Furnace" in md
     assert "Carrier" in md
@@ -78,7 +78,8 @@ def test_equipment_age_summary_always_appears_in_customer_profile():
     assert "FLAG" in md and "10-yr replacement threshold" in md
 
 
-def test_water_heater_10yr_replacement_flag():
+def test_water_heater_tiered_replacement_flag():
+    # Tank water heaters flag at 8 yrs and go urgent at 12 yrs (past typical service life).
     bundle = {
         "meta": {"customer": "Test", "job_type": "Demand - Plumbing - Member", "business_unit": "Plumbing"},
         "dossier": {
@@ -91,9 +92,52 @@ def test_water_heater_10yr_replacement_flag():
             ],
         },
     }
-    md = build_report_card(bundle)
+    md = build_report_card(bundle, use_llm=False)
     assert "Water Heater" in md or "Water heater" in md
-    assert "10-yr replacement threshold" in md
+    assert "FLAG" in md
+    assert "12-yr service life" in md  # urgent tier, not the generic 10-yr HVAC rule
+
+
+def test_water_heater_flag_tier_below_urgent():
+    bundle = {
+        "meta": {"customer": "Test", "job_type": "Demand - Plumbing - Member", "business_unit": "Plumbing"},
+        "dossier": {
+            "job": {"id": 1, "jobNumber": "1", "summary": "Water heater pilot light"},
+            "customer": {"name": "Test"},
+            "memberships": [],
+            "estimates": [],
+            "installed_equipment": [
+                {"name": "Water heater", "type": "Water Heater", "manufacturer": "Rheem", "installedOn": "2017-06-01T05:00:00Z", "active": True},
+            ],
+        },
+    }
+    md = build_report_card(bundle, use_llm=False)
+    assert "8-yr replacement threshold" in md
+
+
+def test_home_age_tier_trigger_renders():
+    bundle = {
+        "meta": {"customer": "Test", "job_type": "HVAC Maintenance", "business_unit": "HVAC"},
+        "dossier": {
+            "job": {"id": 2, "jobNumber": "2", "summary": "Seasonal tune-up"},
+            "customer": {"name": "Test"},
+            "location": {
+                "address": {"street": "1 Main St", "city": "Dallas", "state": "TX", "zip": "75001"},
+                "customFields": [{"name": "Age of Home", "value": "1985"}],
+            },
+            "memberships": [],
+            "estimates": [],
+            "installed_equipment": [],
+        },
+    }
+    import os
+    os.environ["LEX_DISABLE_FREE_CAD_HOME_AGE"] = "1"
+    try:
+        md = build_report_card(bundle, use_llm=False)
+    finally:
+        os.environ.pop("LEX_DISABLE_FREE_CAD_HOME_AGE", None)
+    assert "Home age trigger" in md
+    assert "built 1985" in md
 
 
 def test_hvac_repair_followup_outranks_generic_age_and_uses_photo_specifics():
@@ -118,7 +162,7 @@ def test_hvac_repair_followup_outranks_generic_age_and_uses_photo_specifics():
             {"indexes": [6, 10], "finding": "flex duct laying directly on insulation", "bucket": "duct support", "confidence": "high"},
         ],
     }
-    md = build_report_card(bundle, vision=vision)
+    md = build_report_card(bundle, vision=vision, use_llm=False)
     assert "Repair estimate follow-up" in md
     assert "ductwork kinks / duct sealing repair" in md
     assert "biological growth / AUV-IAQ recommendation" in md

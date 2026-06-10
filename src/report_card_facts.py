@@ -40,7 +40,15 @@ def load_env(path: str, *, override: bool = False) -> None:
             os.environ.setdefault(key, value)
 
 
-load_env("/workspace/openclaw/MOVING/credentials/MASTER.env")
+def load_default_env() -> None:
+    """Load the shared credential vault then the repo-local .env.
+
+    Called explicitly by entrypoints that need API credentials — importing this
+    module no longer reads credential files as a side effect.
+    """
+    load_env("/workspace/openclaw/MOVING/credentials/MASTER.env")
+    load_env(str(Path(__file__).resolve().parents[1] / ".env"), override=True)
+
 
 HTML_TAG = re.compile(r"<[^>]+>")
 
@@ -2341,6 +2349,7 @@ def render_lean_markdown(dossier: dict, ai_text: str, facts: dict, lookups: dict
 
 
 def main():
+    load_default_env()
     if len(sys.argv) < 2:
         raise SystemExit("Usage: report_card_facts.py <existing_brief_dir>")
     src = Path(sys.argv[1])
