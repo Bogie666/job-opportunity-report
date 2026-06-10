@@ -1,11 +1,9 @@
-"""Rebuild lean technician briefs from cached dossier JSON files.
+"""Shared fact extraction for Customer Opportunity Report Cards.
 
-Format:
-  - Header (job type, customer, address, when)
-  - Tech read (AI paragraph + Go win the call bullets)
-  - Key facts (5-8 bullets max)
-  - Opportunities (3-5 bullets, AI-extracted from history+memberships+equipment)
-  - Heads up (only if relevant flags exist)
+This module retains the deterministic ServiceTitan parsing, equipment rollups,
+membership summaries, estimate analysis, and trade classification used by the
+current report-card renderer. The older standalone tech-brief entrypoints were
+removed so new work stays focused on the report-card version.
 """
 from __future__ import annotations
 
@@ -2344,7 +2342,7 @@ def render_lean_markdown(dossier: dict, ai_text: str, facts: dict, lookups: dict
 
 def main():
     if len(sys.argv) < 2:
-        raise SystemExit("Usage: rebuild_lean_briefs.py <existing_brief_dir>")
+        raise SystemExit("Usage: report_card_facts.py <existing_brief_dir>")
     src = Path(sys.argv[1])
     if not src.exists():
         raise SystemExit(f"Dir not found: {src}")

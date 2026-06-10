@@ -21,7 +21,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from rebuild_lean_briefs import (  # noqa: E402
+from report_card_facts import (  # noqa: E402
     _money,
     analyze_estimate_history,
     build_facts_block,
@@ -577,7 +577,7 @@ def build_report_card(bundle: dict, vision: dict | None = None, lifetime_revenue
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("json_path", help="Cached job dossier JSON produced by tech_pre_job_brief.py")
+    ap.add_argument("json_path", help="Cached job dossier JSON produced by servicetitan_dossier.py")
     ap.add_argument("--vision-summary", help="Optional per-job or summary vision JSON")
     ap.add_argument("--lifetime-revenue", type=float, help="Optional known lifetime revenue override from ST/customer scorecard")
     ap.add_argument("--out", help="Output markdown path")

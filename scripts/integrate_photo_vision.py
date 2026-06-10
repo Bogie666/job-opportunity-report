@@ -6,7 +6,7 @@ from datetime import datetime, timezone, timedelta
 
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT/'src'))
-import rebuild_lean_briefs as r
+import report_card_facts as r
 
 CENTRAL=timezone(timedelta(hours=-5))
 

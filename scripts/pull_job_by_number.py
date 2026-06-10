@@ -6,7 +6,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
-from tech_pre_job_brief import load_env, fetch_all, build_lookups, pull_dossier, build_brief_markdown  # noqa: E402
+from servicetitan_dossier import load_env, fetch_all, build_lookups, pull_dossier, build_brief_markdown  # noqa: E402
 from client import ServiceTitanClient  # noqa: E402
 
 ENV_PATHS = [

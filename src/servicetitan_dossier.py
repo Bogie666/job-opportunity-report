@@ -1,4 +1,4 @@
-"""Pre-job technician brief generator.
+"""ServiceTitan job dossier builder for Customer Opportunity Report Cards.
 
 For each scheduled job in a target date window, pulls:
   - Job summary, type, business unit, scheduled appointment window
@@ -10,8 +10,8 @@ For each scheduled job in a target date window, pulls:
   - Past invoice line items at the same location to surface recent work/issues
 
 Generates:
-  - JSON dossier per job (raw pulled data, redacted of PII where helpful)
-  - Markdown brief per job (LLM-narrated through OpenRouter if available, else templated)
+  - JSON dossier per job for the report-card renderer
+  - Lightweight markdown only as a local pull artifact/reference
 
 Read-only ServiceTitan. No production records are modified.
 """

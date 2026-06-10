@@ -14,8 +14,8 @@ LEX Air / Lyons internal tool: pull each scheduled ServiceTitan job, score it fo
 ```
 src/
   client.py                          — ServiceTitan OAuth client
-  tech_pre_job_brief.py              — fetch jobs + build full briefs
-  rebuild_lean_briefs.py             — compact trade-aware brief renderer
+  servicetitan_dossier.py            — fetch scheduled jobs + build cached job dossiers
+  report_card_facts.py               — shared fact extraction used by report cards
   customer_opportunity_report_card.py — report card renderer (locked navy/gold format)
   render_report_card_email.py        — inline-styled HTML email renderer
   serial_decoder.py                  — brand-aware HVAC serial → year decoder
@@ -32,7 +32,6 @@ scripts/
 tests/
   test_customer_opportunity_report_card.py
   test_photo_vision_integration.py
-  test_rebuild_lean_briefs_regression.py
   test_serial_decoder.py
 ```
 

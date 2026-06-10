@@ -7,7 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from tech_pre_job_brief import main, load_env  # noqa: E402
+from servicetitan_dossier import main, load_env  # noqa: E402
 
 
 ENV_PATHS = [
