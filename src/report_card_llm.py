@@ -85,7 +85,12 @@ SYS_MSG = (
     "likelihood at Medium or below. Never say 'no estimate history' when totals are non-zero.\n"
     "9. If GROUND_TRUTH says this is a commercial property, never use home/house/homeowner.\n"
     "10. Keep every bullet specific to THIS customer. If a bullet would be true for any random "
-    "customer, cut it.\n\n" + SCHEMA_DOC
+    "customer, cut it.\n"
+    "11. equipment_record_notes lists old equipment records that were probably already replaced "
+    "but never deactivated in ServiceTitan. NEVER build a replacement/aging opportunity on those "
+    "units; mention them only as verify-on-arrival record checks. Units flagged '(verify)' are "
+    "uncertain — frame them as 'confirm which systems are still in service', not as confirmed "
+    "aging equipment.\n\n" + SCHEMA_DOC
 )
 
 
@@ -105,6 +110,7 @@ def build_report_card_context(d: dict) -> dict:
         "membership_line": d.get("membership_line") or "",
         "equipment_age_line": d.get("eq_age_line") or "",
         "mandatory_flags": [f["text"] for f in d.get("flags") or []],
+        "equipment_record_notes": d.get("stale_lines") or [],
         "booking_note_repair_signals": d.get("repair_followups") or [],
         "photo_source_note": vision.get("photo_source_note") or "No usable photo-vision summary attached",
         "photo_findings": [

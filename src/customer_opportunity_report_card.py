@@ -29,7 +29,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from opportunity_flags import equipment_age_flag, home_age_flags  # noqa: E402
+from opportunity_flags import classify_aged_equipment, home_age_flags  # noqa: E402
 from report_card_facts import (  # noqa: E402
     _estimate_categories,
     _money,
@@ -39,7 +39,6 @@ from report_card_facts import (  # noqa: E402
     membership_one_liner,
     trade_from_jobtype,
 )
-from serial_decoder import decode_serial, unsupported_brand  # noqa: E402
 
 import report_card_llm  # noqa: E402
 
@@ -54,13 +53,6 @@ def _date(iso: str | None) -> str:
         return dt.strftime("%B %Y")
     except Exception:
         return iso[:10]
-
-
-def _year(iso: str | None) -> int | None:
-    if not iso:
-        return None
-    m = re.search(r"(20\d{2}|19\d{2})", str(iso))
-    return int(m.group(1)) if m else None
 
 
 def _status(e: dict) -> str:
@@ -116,44 +108,20 @@ def _active_membership(memberships: list[dict]) -> dict | None:
     return memberships[0] if memberships else None
 
 
-_SYSTEM_COMPONENT_RE = re.compile(
-    r"condenser|heat pump|air handler|furnace|evap(orator)? coil|\bcoil\b|package unit|rtu|mini[- ]?split",
-    re.I,
-)
+_HVAC_FAMILIES = {"outdoor", "indoor-heat", "indoor-air", "coil", "mini-head"}
 
 
-def _remaining_older_equipment(dossier: dict) -> list[dict]:
-    """Older / missing-date system components that likely represent remaining systems
-    when newer replacements are also on file. Brand-agnostic: the signal is the
-    contrast between recent installs and old/undated system components."""
-    equipment = [eq for eq in (dossier.get("installed_equipment") or []) if eq.get("active", True)]
-    now_year = datetime.now(timezone.utc).year
-    recent_years = {
-        _year(eq.get("installedOn")) for eq in equipment
-        if _year(eq.get("installedOn")) and _year(eq.get("installedOn")) >= now_year - 4
-    }
-    if not recent_years:
+def _remaining_older_equipment(classification: dict) -> list[dict]:
+    """Older HVAC units that likely represent genuine remaining systems when newer
+    replacements are also on file. Uses the supersession classifier, so units whose
+    records are likely stale (already replaced, never deactivated in ST) are
+    excluded instead of producing false remaining-system opportunities."""
+    if not classification.get("has_recent"):
         return []
-    older = []
-    for eq in equipment:
-        installed_year = _year(eq.get("installedOn"))
-        if installed_year is not None and installed_year < 2000:
-            installed_year = None  # ST placeholder dates
-        if installed_year and installed_year >= now_year - 6:
-            continue
-        type_obj = eq.get("type")
-        type_name = (type_obj.get("name") if isinstance(type_obj, dict) else type_obj) or ""
-        name = str(eq.get("name") or type_name or "Equipment")
-        blob = f"{type_name} {name} {eq.get('model') or ''}"
-        if not _SYSTEM_COMPONENT_RE.search(blob):
-            continue
-        older.append({
-            "name": name,
-            "manufacturer": str(eq.get("manufacturer") or ""),
-            "model": str(eq.get("model") or ""),
-            "installed_year": installed_year,
-        })
-    return older
+    return [
+        u for u in classification.get("units") or []
+        if u.get("supersession") in ("remaining", "ambiguous") and u.get("family") in _HVAC_FAMILIES
+    ]
 
 
 def _job_summary_age_signal(dossier: dict) -> str | None:
@@ -259,65 +227,54 @@ def _photo_finding_lines(vision: dict | None) -> list[str]:
     return lines
 
 
-def _equipment_age_summary(dossier: dict, age_signal: str | None) -> tuple[str | None, list[dict]]:
-    """Return (CUSTOMER PROFILE equipment-age line, list of tiered flag dicts).
+def _equipment_age_summary(dossier: dict, age_signal: str | None, classification: dict) -> tuple[str | None, list[dict], list[str]]:
+    """Return (CUSTOMER PROFILE equipment-age line, tiered flag dicts, stale-record lines).
 
-    Prefers structured installedOn dates, falls back to serial decode, then to the
-    booking-note age signal. Always verify-on-arrival — ST install dates are
-    routinely wrong/placeholder. Flag thresholds are per equipment class
-    (opportunity_flags.EQUIPMENT_AGE_TIERS), with an urgent tier past typical
-    service life."""
-    equipment = dossier.get("installed_equipment") or []
-    now_year = datetime.now(timezone.utc).year
+    Ages come from the supersession classifier (installedOn → serial decode → booking
+    note). Always verify-on-arrival — ST install dates are routinely wrong/placeholder.
+    Supersession handling: units likely already replaced (stale ST records) emit a
+    record note instead of a red flag; ambiguous units get a softened verify-first
+    flag; only genuine remaining units keep the full tier flag."""
     parts: list[str] = []
     flags: list[dict] = []
+    stale_lines: list[str] = []
     seen = set()
-    for eq in equipment:
-        if not eq.get("active", True):
-            continue
-        type_obj = eq.get("type")
-        type_name = (type_obj.get("name") if isinstance(type_obj, dict) else type_obj) or eq.get("name") or "Equipment"
-        type_name = str(type_name).strip() or "Equipment"
-        mfg = str(eq.get("manufacturer") or "").strip()
-        installed_year = _year(eq.get("installedOn"))
-        # Treat 1900-01-01 / 1990-01-01 ServiceTitan placeholders as missing
-        if installed_year is not None and installed_year < 2000:
-            installed_year = None
-        serial = str(eq.get("serialNumber") or "")
-        decoded_year = None
-        decoder_conf = None
-        decoded_label = None
-        if not installed_year and serial:
-            res = decode_serial(mfg, serial)
-            if res:
-                decoded_year, decoder_conf, decoded_label = res
-        year = installed_year or decoded_year
-        label = f"{type_name} ({mfg})".strip() if mfg else type_name
-        if year and 2000 <= year <= now_year:
-            age = now_year - year
-            if installed_year:
-                source = f"installed {year}"
-            else:
-                source = f"{decoded_label} {year}, {decoder_conf} confidence"
-            key = (type_name.lower(), year)
-            if key in seen:
-                continue
-            seen.add(key)
-            parts.append(f"{label} ~{age} yrs ({source})")
-            flag = equipment_age_flag(f"{type_name} {eq.get('name') or ''}", age, source=source, display_label=label)
-            if flag:
-                flags.append(flag)
+    for u in classification.get("units") or []:
+        # Summary-line dedupe (same type + same year shows once) is display-only:
+        # flag/stale handling below still runs for every unit.
+        if u["age"] is not None:
+            key = (u["type_name"].lower(), u["year"])
+            if key not in seen:
+                seen.add(key)
+                note = " — likely already replaced, see record note" if u["supersession"] == "superseded" else ""
+                parts.append(f"{u['label']} ~{u['age']} yrs ({u['age_source']}){note}")
         else:
-            key = (type_name.lower(), "nodate")
-            if key in seen:
-                continue
-            seen.add(key)
-            if serial and unsupported_brand(mfg):
-                parts.append(f"{label} install date missing; serial decoder does not yet support {mfg} — verify nameplate year")
-            elif serial:
-                parts.append(f"{label} install date missing and serial format did not decode — verify nameplate year")
-            else:
-                parts.append(f"{label} install date missing, verify nameplate")
+            key = (u["type_name"].lower(), "nodate")
+            if key not in seen:
+                seen.add(key)
+                if u["serial"] and u["serial_unsupported"]:
+                    parts.append(f"{u['label']} install date missing; serial decoder does not yet support {u['manufacturer']} — verify nameplate year")
+                elif u["serial"]:
+                    parts.append(f"{u['label']} install date missing and serial format did not decode — verify nameplate year")
+                else:
+                    parts.append(f"{u['label']} install date missing, verify nameplate")
+        if u["supersession"] == "superseded":
+            by = f" by {u['superseded_by']}" if u["superseded_by"] else ""
+            age_txt = f" ~{u['age']} yrs" if u["age"] is not None else " (no install date)"
+            stale_lines.append(
+                f"Stale record likely: {u['label']}{age_txt} appears superseded{by} — {u['supersession_reason']}. "
+                "Old record is still active in ServiceTitan; verify on arrival, do not treat as a replacement opportunity on its own."
+            )
+        elif u["aged_flag"] and u["supersession"] == "ambiguous":
+            flag = dict(u["aged_flag"])
+            flag["severity"] = "verify"
+            flag["text"] = (
+                f"⚠ FLAG (verify): {u['label']} ~{u['age']} yrs — over {flag['threshold']}-yr threshold, "
+                f"but {u['supersession_reason']}; confirm which systems are still in service before a replacement conversation."
+            )
+            flags.append(flag)
+        elif u["aged_flag"]:
+            flags.append(u["aged_flag"])
     summary = None
     if parts:
         summary = "Equipment age on file: " + "; ".join(parts) + "."
@@ -336,13 +293,14 @@ def _equipment_age_summary(dossier: dict, age_signal: str | None) -> tuple[str |
                     "threshold; verify nameplate and discuss replacement planning."
                 ),
             })
-    # Dedupe flag texts while preserving order.
+    # Dedupe flag/stale texts while preserving order.
     deduped, seen_flags = [], set()
     for f in flags:
         if f["text"] not in seen_flags:
             deduped.append(f)
             seen_flags.add(f["text"])
-    return summary, deduped
+    stale_deduped = list(dict.fromkeys(stale_lines))
+    return summary, deduped, stale_deduped
 
 
 def _confidence_score(sold_total: float, sold_count: int, active_recurring_membership: bool, older_equipment: bool, open_count: int) -> tuple[str, str, str, str]:
@@ -388,8 +346,9 @@ def _derive(bundle: dict, vision: dict | None, lifetime_revenue: float | None) -
     active_m = _active_membership(memberships)
     active_recurring_m = bool(active_m) and str(active_m.get("billingFrequency") or "").lower() not in {"onetime", "one time", "one-time"}
     age_signal = _job_summary_age_signal(dossier)
-    older = _remaining_older_equipment(dossier)
-    eq_age_line, eq_flags = _equipment_age_summary(dossier, age_signal)
+    classification = classify_aged_equipment(dossier)
+    older = _remaining_older_equipment(classification)
+    eq_age_line, eq_flags, stale_lines = _equipment_age_summary(dossier, age_signal, classification)
     flags = list(eq_flags) + home_age_flags(facts.get("home_built_year"))
 
     membership_line = membership_one_liner({
@@ -427,8 +386,10 @@ def _derive(bundle: dict, vision: dict | None, lifetime_revenue: float | None) -
         "active_recurring_m": active_recurring_m,
         "older": older,
         "age_signal": age_signal,
+        "classification": classification,
         "eq_age_line": eq_age_line,
         "flags": flags,
+        "stale_lines": stale_lines,
         "call_issue": _call_issue(job),
         "repair_followups": _repair_followup_items(job),
         "photo_lines": _photo_finding_lines(vision),
@@ -683,6 +644,8 @@ def render_markdown(d: dict, sections: dict) -> str:
     # Flags are always rendered deterministically — the LLM cannot drop or alter them.
     for flag in d["flags"]:
         md.append(f"- {flag['text']}")
+    for line in d.get("stale_lines") or []:
+        md.append(f"- {line}")
     md.append("")
 
     md.append("## BUYING BEHAVIOR")

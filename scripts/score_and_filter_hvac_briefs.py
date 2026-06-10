@@ -24,19 +24,17 @@ import csv
 import json
 import re
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from opportunity_flags import (  # noqa: E402
-    equipment_age_flag,
-    equipment_flag_score,
+    classified_equipment_score,
+    classify_aged_equipment,
     home_age_flags,
     home_age_score,
 )
-from serial_decoder import decode_serial  # noqa: E402  brand-aware decoder
 
 
 def _status(e):
@@ -51,41 +49,6 @@ def _money(rows, status_filter):
 
 
 YEAR_RE = re.compile(r"(20\d{2}|19\d{2})")
-
-
-def _equip_age_records(equipment):
-    """Return (type/name blob, age years) for each active piece of equipment.
-
-    Age priority: installedOn date → brand-aware serial decoder.
-    Naive WWYY-on-everything regex removed — it mis-decoded Trane/Lennox/Rheem
-    YYWW serials as 20-year-old equipment (e.g. Trane '22085' → 2008 instead
-    of 2022). See src/serial_decoder.py for the brand-aware rules.
-    """
-    now_year = datetime.now(timezone.utc).year
-    records = []
-    for eq in equipment or []:
-        if not eq.get("active", True):
-            continue
-        year = None
-        iso = eq.get("installedOn") or ""
-        m = YEAR_RE.search(str(iso))
-        if m:
-            year = int(m.group(1))
-        if not year:
-            mfg = eq.get("manufacturer")
-            if isinstance(mfg, dict):
-                mfg = mfg.get("name") or ""
-            serial = str(eq.get("serialNumber") or "")
-            decoded = decode_serial(str(mfg or ""), serial)
-            if decoded:
-                year = decoded[0]
-        if year and 1990 <= year <= now_year:
-            type_field = eq.get("type")
-            if isinstance(type_field, dict):
-                type_field = type_field.get("name") or ""
-            blob = f"{type_field or ''} {eq.get('name') or ''}"
-            records.append((blob, now_year - year))
-    return records
 
 
 def _home_built_year(dossier):
@@ -118,23 +81,29 @@ def score_bundle(bundle, photos_have_sheet):
     meta = bundle.get("meta") or {}
     job = dossier.get("job") or {}
     summary = str(job.get("summary") or "")
-    equipment = dossier.get("installed_equipment") or []
     memberships = dossier.get("memberships") or []
     estimates = dossier.get("estimates") or []
 
     score = 0
     drivers = []
 
-    records = _equip_age_records(equipment)
-    max_age = max((age for _, age in records), default=None)
-    equip_flags = [f for f in (equipment_age_flag(blob, age) for blob, age in records) if f]
-    flag_points = equipment_flag_score(equip_flags)
+    # Supersession-aware equipment scoring: aged records that were likely already
+    # replaced (stale ST records next to a recent install) score 0 instead of
+    # producing false aged-equipment points; ambiguous ones score a reduced 10.
+    classification = classify_aged_equipment(dossier)
+    known_ages = [
+        u["age"] for u in classification["units"]
+        if u["age"] is not None and u.get("supersession") != "superseded"
+    ]
+    max_age = max(known_ages, default=None)
+    flag_points, flag_note, stale_count = classified_equipment_score(classification)
     if flag_points:
         score += flag_points
-        worst = max(equip_flags, key=lambda f: (f["severity"] == "urgent", f["age"]))
-        drivers.append(f"{worst['label']} {worst['age']}y ({worst['severity']}, +{flag_points})")
+        drivers.append(flag_note)
+    if stale_count:
+        drivers.append(f"{stale_count} aged record(s) likely superseded, ignored")
 
-    if not records:
+    if not any(u["age"] is not None for u in classification["units"]):
         m = OLDER_KEYWORDS.search(summary)
         if m:
             try:

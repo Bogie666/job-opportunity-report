@@ -120,6 +120,23 @@ cross-trade). These drive both a CUSTOMER PROFILE trigger line and scorer points
 Flag text includes age provenance ("installed 2012" / "carrier serial decode, medium
 confidence" / "booking notes") — keep it; it tells the tech how much to trust the trigger.
 
+**Supersession classifier** (`classify_aged_equipment` in `opportunity_flags.py`):
+ServiceTitan routinely keeps replaced equipment active, so every aged/undated unit is
+classified before flagging using a signal ladder — (1) zone-token pairing with a recent
+same-family install, (2) "# of systems" custom-field arithmetic, (3) tonnage pairing,
+confirmed by a sold capital estimate near the install date, (4) a booking-note
+counter-signal that pulls one unit back to ambiguous if the CSR noted an old system
+still in service. Outcomes:
+- `superseded` → "Stale record likely" verify note on the card, NO red flag, 0 scorer
+  points (drivers show "N aged record(s) likely superseded, ignored").
+- `ambiguous` → softened "⚠ FLAG (verify)" + reduced +10 scorer points.
+- `remaining` → full red flag and full points.
+Nothing is ever hidden — the equipment-age line still shows the old record with a
+"likely already replaced" annotation, and the LLM receives `equipment_record_notes`
+with an explicit rule (SYS_MSG rule 11) to never build replacement opportunities on
+superseded units. If a card looks like it under-flagged old equipment, check the
+"Stale record likely" lines first — that is usually the classifier working as intended.
+
 Scoring weights (hand-set, pending calibration): urgent flag +35, flag +25, home tier
 +5/+5/+10/+15, active membership +10, open estimates +5 each (cap 30), open ≥$5k +20,
 sold ≥$10k +15, photos +10, repair keywords +15, booking-note-age-only +20/+30.
