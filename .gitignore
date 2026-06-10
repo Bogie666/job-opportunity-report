@@ -1,0 +1,54 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual envs / symlinks
+.venv
+venv/
+env/
+
+# Secrets — NEVER commit
+.env
+.env.*
+!.env.example
+secrets/
+*.pem
+*.key
+
+# ServiceTitan data dumps contain real customer PII — never commit
+data/
+logs/
+*.log
+
+# Tech brief output is generated per run, with customer details
+tech_briefs/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Cron / scratch
+.cache/
+.tmp/
+
+# Tools in this dir that are NOT part of the job-opportunity-report pipeline.
+# (Membership churn / expired / cancellations analysis lives separately.)
+src/analyze_expired_memberships_ytd.py
+src/analyze_expired_memberships_ytd_strict.py
+src/analyze_membership_cancellations_ytd.py
+src/build_hierarchy_pdf.py
+src/build_membership_churn_exec_report.py
+src/email_lost_membership_base_report.py
+src/email_membership_churn_report.py
+src/enrich_ambiguous_membership_cancellations.py
+src/export_ref_csvs.py
