@@ -100,7 +100,7 @@ DEMAND_RE = re.compile(
     re.I,
 )
 VALUABLE_PHOTO_RE = re.compile(
-    r"\b(insulation|low\s+insulation|thin\s+insulation|kink(?:ed)?\s+duct(?:work)?|sag(?:ging)?\s+duct(?:work)?|duct(?:work)?\s+(?:leak|damage|disconnect|sealing|insulation|support|restricts)|dirty\s+(?:blower|return|coil|filter)|biological|growth|rust|corrosion|water\s+(?:stain|damage)|drain\s+pan|overflow|unsafe\s+access|panel|breaker|double\s*tap|open\s+splice|water\s+heater|plumbing\s+leak)\b",
+    r"\b(insulation|low\s+insulation|thin\s+insulation|kink(?:ed)?\s+duct(?:work)?|sag(?:ging)?\s+duct(?:work)?|duct(?:work)?\s+(?:leak|damage|disconnect|sealing|insulation|support|restricts)|duct\s+tape|deteriorat(?:e|ing)|dust\s+accumulation|dirty\s+(?:blower|return|coil|filter|duct)|biological|growth|rust|corrosion|water\s+(?:stain|damage)|murky\s+water|drain\s+(?:pan|pipe|residue)|overflow|unsafe\s+access|panel|breaker|double\s*tap|open\s+splice|water\s+heater|plumbing\s+leak)\b",
     re.I,
 )
 

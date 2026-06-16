@@ -47,6 +47,7 @@ def load_default_env() -> None:
     module no longer reads credential files as a side effect.
     """
     load_env("/workspace/openclaw/MOVING/credentials/MASTER.env")
+    load_env("/workspace/apps/openclaw-credential-archive/20260526T032211Z/secrets/MOVING/credentials/MASTER.env")
     load_env("/workspace/.secrets/hermes.env")
     load_env(str(Path(__file__).resolve().parents[1] / ".env"), override=True)
 
