@@ -10,12 +10,12 @@ the visits so the weights below can be calibrated against reality.
 Heuristics (tweakable — see src/opportunity_flags.py for the age-tier rules):
 - Equipment past per-class replacement threshold → +25 (urgent tier → +35)
 - Home-age tier: 10-30 yrs → +5, 30-45 yrs → +10, 45+ yrs → +15
+- Demand/problem call intent → +20
 - Active membership → +10
-- 1+ open estimate → +5 each (cap 30)
-- Open estimate total ≥ $5k → +20
+- Open estimate context → +0 to +3 tie-breaker only
 - Sold estimate history ≥ $10k → +15
-- Photos available (contact sheet) → +10
-- Booking-note repair recommendation keywords → +15
+- Valuable photo findings are added after vision analysis, not from photo availability alone
+- Booking-note repair recommendation keywords → +10
 - "Older system" booking-note age signal (no equipment dates) → +20/+30
 """
 from __future__ import annotations
@@ -35,6 +35,8 @@ from opportunity_flags import (  # noqa: E402
     home_age_flags,
     home_age_score,
 )
+from report_card_facts import build_facts_block  # noqa: E402
+from opportunity_snapshot import is_excluded_opportunity_call, call_intent_type  # noqa: E402
 
 
 def _status(e):
@@ -52,8 +54,14 @@ YEAR_RE = re.compile(r"(20\d{2}|19\d{2})")
 
 
 def _home_built_year(dossier):
-    """Home build year from ST location custom fields only — no network lookups
-    in the scorer (the CAD resolver runs later, in the report-card stage)."""
+    """Resolved home build year using the same fact builder/CAD chain as report cards."""
+    try:
+        facts = build_facts_block(dossier)
+        year = facts.get("home_built_year") or facts.get("cad_home_built_year")
+        if year:
+            return int(year)
+    except Exception:
+        pass
     location = dossier.get("location") or {}
     for cf in location.get("customFields") or []:
         name = (cf.get("name") or "").lower()
@@ -83,9 +91,19 @@ def score_bundle(bundle, photos_have_sheet):
     summary = str(job.get("summary") or "")
     memberships = dossier.get("memberships") or []
     estimates = dossier.get("estimates") or []
+    job_type = meta.get("job_type") or ""
+    business_unit = meta.get("business_unit") or ""
+    excluded = is_excluded_opportunity_call(job_type, summary, business_unit)
 
     score = 0
     drivers = []
+
+    intent_type = call_intent_type(job_type, summary)
+    if intent_type == "demand":
+        score += 20
+        drivers.append("demand/problem call (+20)")
+    elif intent_type == "maintenance":
+        drivers.append("maintenance call (+0, needs supporting signals)")
 
     # Supersession-aware equipment scoring: aged records that were likely already
     # replaced (stale ST records next to a recent install) score 0 instead of
@@ -131,26 +149,25 @@ def score_bundle(bundle, photos_have_sheet):
 
     open_rows = [e for e in estimates if _status(e) == "open"]
     sold_rows = [e for e in estimates if _status(e) == "sold"]
-    if open_rows:
-        bump = min(len(open_rows) * 5, 30)
-        score += bump
-        drivers.append(f"{len(open_rows)} open est (+{bump})")
     open_total = sum(float(e.get("subtotal") or 0) for e in open_rows)
-    if open_total >= 5000:
-        score += 20
-        drivers.append(f"open ${int(open_total)}")
+    open_bump = 0
+    if open_rows and (flag_points or intent_type == "demand"):
+        open_bump = 1 if open_total < 10000 else 2 if open_total < 30000 else 3
+        score += open_bump
+        drivers.append(f"open quote context only (+{open_bump})")
+    elif open_rows:
+        drivers.append(f"{len(open_rows)} open quote(s), no score")
     sold_total = sum(float(e.get("subtotal") or 0) for e in sold_rows)
     if sold_total >= 10000:
         score += 15
         drivers.append(f"sold ${int(sold_total)}")
 
     if photos_have_sheet:
-        score += 10
-        drivers.append("photos avail")
+        drivers.append("photos available, vision findings score separately")
 
-    if REPAIR_KEYWORDS.search(summary):
-        score += 15
-        drivers.append("note: repair signals")
+    if REPAIR_KEYWORDS.search(summary) and intent_type != "demand":
+        score += 10
+        drivers.append("note: repair signals (+10)")
 
     return {
         "job_number": str(job.get("jobNumber") or job.get("id") or ""),
@@ -165,6 +182,9 @@ def score_bundle(bundle, photos_have_sheet):
         "open_estimate_total": int(open_total),
         "sold_estimate_total": int(sold_total),
         "active_membership": active_m,
+        "call_intent": intent_type,
+        "excluded": excluded,
+        "excluded_reason": "warranty/recall/QC/callback/recent-install" if excluded else "",
     }
 
 
@@ -185,6 +205,9 @@ def main(run_dir: Path, manifest_path: Path, threshold: int = 35, top_n: int = 1
         rec = score_bundle(bundle, has_sheet)
         rec["dossier_json"] = str(jf)
         rec["job_id"] = job_id
+        if rec.get("excluded"):
+            excluded.append(rec)
+            continue
         if exclude_re and exclude_re.search(rec.get("job_type", "")):
             rec["excluded_reason"] = "call-type filter"
             excluded.append(rec)
@@ -199,7 +222,7 @@ def main(run_dir: Path, manifest_path: Path, threshold: int = 35, top_n: int = 1
     fields = [
         "job_number", "score", "job_type", "customer", "drivers", "has_photos",
         "max_equip_age", "home_built_year", "open_estimate_count", "open_estimate_total",
-        "sold_estimate_total", "active_membership", "job_id", "dossier_json",
+        "sold_estimate_total", "active_membership", "call_intent", "excluded_reason", "job_id", "dossier_json",
     ]
     with tsv_path.open("w") as f:
         w = csv.DictWriter(f, fieldnames=fields, delimiter="\t")
