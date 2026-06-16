@@ -60,8 +60,11 @@ SYS_MSG = (
     "manager-level reason to flag the call. This snapshot answers only: should a service manager "
     "pay attention and consider a stronger sales-capable technician?\n\n"
     "Ground truth rules: use only facts in the context. Do not invent dollar amounts, equipment, years, "
-    "or customer intent. Open estimates mean quoted/not closed, not proven interest. Historical photos "
-    "are weak unless the broader context supports attention. If evidence is mixed, say mixed.\n\n"
+    "or customer intent. Open estimates mean quoted/not closed, not proven interest. Treat large open "
+    "estimate totals as weak context unless reinforced by current call intent, asset age, history, or trust. "
+    "Do not say open estimates indicate customer interest. Historical photos are weak unless the broader "
+    "context supports attention. Recall, warranty, QC, and just-installed system issues should be conservative "
+    "unless independent opportunity signals are strong. If evidence is mixed, say mixed.\n\n"
     + SCHEMA_DOC
 )
 
@@ -323,7 +326,15 @@ def _sanitize_snapshot(snapshot: dict, d: dict) -> dict:
         return any(term in low and term not in current_blob for term in gated_terms)
 
     def clean_salesy(s: str) -> str:
-        return re.sub(r"\bupsell\b", "sales conversation", str(s), flags=re.I)
+        s = re.sub(r"\bupsell\b", "sales conversation", str(s), flags=re.I)
+        s = re.sub(r"\bHigh open estimate total(?: of)? ([^,.]+)(?: with [^.]+)?(?:,?\s*(?:suggesting|indicating)[^.]*)?", r"Prior open quote context totals \1, useful only if today's findings support it", s, flags=re.I)
+        s = re.sub(r"\bMultiple open estimates? totaling ([^,.]+)\s*(?:suggest|indicate)[^.]*", r"Prior open quote context totals \1, useful only if today's findings support it", s, flags=re.I)
+        s = re.sub(r"\bopen estimates? (?:totaling|worth) ([^,.]+),?\s*(?:indicating|suggesting) (?:potential )?(?:interest|ongoing interest)[^.]*(\.)?", r"prior open quote context totals \1, useful only if today's findings support it.", s, flags=re.I)
+        s = re.sub(r"\bMultiple open estimates across trades in additional services\b", "Prior open quote context exists across trades", s, flags=re.I)
+        s = re.sub(r"\bleverag(?:e|ing) the high open estimate total and ", "use ", s, flags=re.I)
+        s = re.sub(r",?\s*(?:indicating|suggesting) (?:potential )?(?:interest|ongoing interest)\b", "", s, flags=re.I)
+        s = re.sub(r"\bstrong potential for additional sales\b", "possible opportunity if field findings support it", s, flags=re.I)
+        return re.sub(r"\s+", " ", s).strip()
 
     cleaned = dict(snapshot)
     cleaned["headline"] = clean_salesy(re.sub(r"\s*(?:and|/)\s*IAQ (?:upsell|opportunities?)", "", str(cleaned.get("headline") or ""), flags=re.I))
