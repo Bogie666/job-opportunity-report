@@ -66,9 +66,16 @@ def bucket(rows: list[dict], key: str):
     return dict(out)
 
 
-def main() -> int:
-    rows = list(csv.DictReader(OUTCOMES_CSV.open(newline="")))
+def build_metrics(rows: list[dict], date_from: str | None = None, date_to: str | None = None) -> dict:
+    """Compute deduped ROI metrics, optionally restricted to [date_from, date_to] inclusive.
+
+    Dates are scheduled_date strings (YYYY-MM-DD). Excludes lead-driven job types.
+    """
     jobs = dedupe_by_job(rows)
+    if date_from:
+        jobs = [r for r in jobs if (r.get("scheduled_date") or "") >= date_from]
+    if date_to:
+        jobs = [r for r in jobs if (r.get("scheduled_date") or "") <= date_to]
     excluded = [r for r in jobs if (r.get("job_type") or "").strip().lower() in EXCLUDE_JOB_TYPES]
     jobs = [r for r in jobs if (r.get("job_type") or "").strip().lower() not in EXCLUDE_JOB_TYPES]
     excluded_rev = round(sum(num(r.get("booked_or_sold_revenue")) for r in excluded), 2)
@@ -78,12 +85,10 @@ def main() -> int:
     uj, uw = len(jobs), len(won)
     tot = round(sum(num(r["booked_or_sold_revenue"]) for r in jobs), 2)
 
-    by_date = bucket(jobs, "scheduled_date")
-    by_grade = bucket(jobs, "grade")
-    by_type = bucket(jobs, "job_type")
-
-    metrics = {
+    return {
         "generated_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "window_from": date_from,
+        "window_to": date_to,
         "unique_opportunities": uj,
         "converted": uw,
         "conversion_rate": round(uw / uj, 4) if uj else 0.0,
@@ -93,9 +98,9 @@ def main() -> int:
         "excluded_job_types": sorted(EXCLUDE_JOB_TYPES),
         "excluded_opportunities": len(excluded),
         "excluded_revenue": excluded_rev,
-        "by_date": by_date,
-        "by_grade": by_grade,
-        "by_job_type": by_type,
+        "by_date": bucket(jobs, "scheduled_date"),
+        "by_grade": bucket(jobs, "grade"),
+        "by_job_type": bucket(jobs, "job_type"),
         "top_converted": [
             {
                 "date": r["scheduled_date"],
@@ -107,10 +112,26 @@ def main() -> int:
             for r in won[:10]
         ],
     }
+
+
+def main() -> int:
+    rows = list(csv.DictReader(OUTCOMES_CSV.open(newline="")))
+    metrics = build_metrics(rows)
+    uj = metrics["unique_opportunities"]
+    uw = metrics["converted"]
+    tot = metrics["total_revenue"]
+    excluded_n = metrics["excluded_opportunities"]
+    excluded_rev = metrics["excluded_revenue"]
+    by_date = metrics["by_date"]
+    by_grade = metrics["by_grade"]
+    by_type = metrics["by_job_type"]
+
     JSON_OUT.write_text(json.dumps(metrics, indent=2, default=str))
 
     def pct(x):
         return f"{x*100:.0f}%"
+
+    excluded = metrics["excluded_opportunities"]  # backward-compat name used below
 
     L = []
     L.append("# Service Manager Opportunity Snapshot — ROI Report")
@@ -127,7 +148,7 @@ def main() -> int:
     L.append("")
     L.append("Note: metrics dedupe by job_id; same-day re-runs do not double-count.")
     if excluded:
-        L.append(f"Excluded {len(excluded)} lead-driven job(s) (${excluded_rev:,.0f}) of type: {', '.join(sorted(EXCLUDE_JOB_TYPES))}. These are internal/Comfort Advisor sales, not snapshot-surfaced opportunities.")
+        L.append(f"Excluded {excluded} lead-driven job(s) (${excluded_rev:,.0f}) of type: {', '.join(sorted(EXCLUDE_JOB_TYPES))}. These are internal/Comfort Advisor sales, not snapshot-surfaced opportunities.")
     L.append("")
     L.append("## Daily Trend")
     L.append("")
