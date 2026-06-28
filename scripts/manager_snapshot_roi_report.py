@@ -22,6 +22,11 @@ OUTCOMES_CSV = OUT / "manager_snapshot_outcomes.csv"
 MD = OUT / "manager_snapshot_roi_report.md"
 JSON_OUT = OUT / "manager_snapshot_roi_report.json"
 
+# Job types excluded from ROI attribution: these are lead-driven / internal sales
+# (e.g. Comfort Advisor equipment replacements), not opportunities the snapshot
+# surfaced from unassigned demand. Including them inflates conversion and revenue.
+EXCLUDE_JOB_TYPES = {"tech lead - equipment"}
+
 
 def num(x) -> float:
     try:
@@ -64,6 +69,9 @@ def bucket(rows: list[dict], key: str):
 def main() -> int:
     rows = list(csv.DictReader(OUTCOMES_CSV.open(newline="")))
     jobs = dedupe_by_job(rows)
+    excluded = [r for r in jobs if (r.get("job_type") or "").strip().lower() in EXCLUDE_JOB_TYPES]
+    jobs = [r for r in jobs if (r.get("job_type") or "").strip().lower() not in EXCLUDE_JOB_TYPES]
+    excluded_rev = round(sum(num(r.get("booked_or_sold_revenue")) for r in excluded), 2)
     won = [r for r in jobs if num(r.get("booked_or_sold_revenue")) > 0]
     won.sort(key=lambda r: -num(r.get("booked_or_sold_revenue")))
 
@@ -82,6 +90,9 @@ def main() -> int:
         "total_revenue": tot,
         "revenue_per_opportunity": round(tot / uj, 2) if uj else 0.0,
         "avg_ticket_on_converted": round(tot / uw, 2) if uw else 0.0,
+        "excluded_job_types": sorted(EXCLUDE_JOB_TYPES),
+        "excluded_opportunities": len(excluded),
+        "excluded_revenue": excluded_rev,
         "by_date": by_date,
         "by_grade": by_grade,
         "by_job_type": by_type,
@@ -115,6 +126,8 @@ def main() -> int:
     L.append(f"- Average ticket on converted jobs: ${metrics['avg_ticket_on_converted']:,.0f}")
     L.append("")
     L.append("Note: metrics dedupe by job_id; same-day re-runs do not double-count.")
+    if excluded:
+        L.append(f"Excluded {len(excluded)} lead-driven job(s) (${excluded_rev:,.0f}) of type: {', '.join(sorted(EXCLUDE_JOB_TYPES))}. These are internal/Comfort Advisor sales, not snapshot-surfaced opportunities.")
     L.append("")
     L.append("## Daily Trend")
     L.append("")
