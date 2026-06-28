@@ -66,11 +66,39 @@ def bucket(rows: list[dict], key: str):
     return dict(out)
 
 
-def build_metrics(rows: list[dict], date_from: str | None = None, date_to: str | None = None) -> dict:
+MATURITY_DAYS = 14  # days after scheduled_date before realized revenue is considered settled
+
+
+def build_metrics(
+    rows: list[dict],
+    date_from: str | None = None,
+    date_to: str | None = None,
+    as_of: str | None = None,
+    maturity_days: int = MATURITY_DAYS,
+) -> dict:
     """Compute deduped ROI metrics, optionally restricted to [date_from, date_to] inclusive.
 
     Dates are scheduled_date strings (YYYY-MM-DD). Excludes lead-driven job types.
+
+    Maturity: a flagged opportunity's revenue is considered "matured" (settled)
+    once `maturity_days` have elapsed since its scheduled_date relative to `as_of`
+    (defaults to today, America/Chicago). Matured-only sub-metrics let executives
+    distinguish settled performance from still-accruing recent weeks.
     """
+    from datetime import date as _date
+    from zoneinfo import ZoneInfo as _ZoneInfo
+
+    as_of_date = _date.fromisoformat(as_of) if as_of else datetime.now(_ZoneInfo("America/Chicago")).date()
+
+    def is_matured(r: dict) -> bool:
+        d = (r.get("scheduled_date") or "").strip()
+        if not d:
+            return False
+        try:
+            return (as_of_date - _date.fromisoformat(d)).days >= maturity_days
+        except ValueError:
+            return False
+
     jobs = dedupe_by_job(rows)
     if date_from:
         jobs = [r for r in jobs if (r.get("scheduled_date") or "") >= date_from]
@@ -85,16 +113,35 @@ def build_metrics(rows: list[dict], date_from: str | None = None, date_to: str |
     uj, uw = len(jobs), len(won)
     tot = round(sum(num(r["booked_or_sold_revenue"]) for r in jobs), 2)
 
+    matured = [r for r in jobs if is_matured(r)]
+    fresh = [r for r in jobs if not is_matured(r)]
+    m_won = [r for r in matured if num(r.get("booked_or_sold_revenue")) > 0]
+    m_uj, m_uw = len(matured), len(m_won)
+    m_tot = round(sum(num(r["booked_or_sold_revenue"]) for r in matured), 2)
+    f_tot = round(sum(num(r["booked_or_sold_revenue"]) for r in fresh), 2)
+
     return {
         "generated_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "window_from": date_from,
         "window_to": date_to,
+        "as_of": as_of_date.isoformat(),
+        "maturity_days": maturity_days,
         "unique_opportunities": uj,
         "converted": uw,
         "conversion_rate": round(uw / uj, 4) if uj else 0.0,
         "total_revenue": tot,
         "revenue_per_opportunity": round(tot / uj, 2) if uj else 0.0,
         "avg_ticket_on_converted": round(tot / uw, 2) if uw else 0.0,
+        # Matured (settled >= maturity_days) vs fresh (still accruing)
+        "matured_opportunities": m_uj,
+        "matured_converted": m_uw,
+        "matured_conversion_rate": round(m_uw / m_uj, 4) if m_uj else 0.0,
+        "matured_revenue": m_tot,
+        "matured_revenue_per_opportunity": round(m_tot / m_uj, 2) if m_uj else 0.0,
+        "matured_avg_ticket_on_converted": round(m_tot / m_uw, 2) if m_uw else 0.0,
+        "fresh_opportunities": len(fresh),
+        "fresh_revenue": f_tot,
+        "all_jobs_matured": len(fresh) == 0,
         "excluded_job_types": sorted(EXCLUDE_JOB_TYPES),
         "excluded_opportunities": len(excluded),
         "excluded_revenue": excluded_rev,
@@ -108,6 +155,7 @@ def build_metrics(rows: list[dict], date_from: str | None = None, date_to: str |
                 "customer": r.get("customer"),
                 "job_type": r.get("job_type"),
                 "revenue": num(r["booked_or_sold_revenue"]),
+                "matured": is_matured(r),
             }
             for r in won[:10]
         ],
@@ -149,6 +197,13 @@ def main() -> int:
     L.append("Note: metrics dedupe by job_id; same-day re-runs do not double-count.")
     if excluded:
         L.append(f"Excluded {excluded} lead-driven job(s) (${excluded_rev:,.0f}) of type: {', '.join(sorted(EXCLUDE_JOB_TYPES))}. These are internal/Comfort Advisor sales, not snapshot-surfaced opportunities.")
+    L.append("")
+    L.append(f"## Matured vs Fresh (settle window: {metrics['maturity_days']} days, as of {metrics['as_of']})")
+    L.append("")
+    L.append(f"- Matured (settled): {metrics['matured_opportunities']} opps | {metrics['matured_converted']} won ({pct(metrics['matured_conversion_rate'])}) | ${metrics['matured_revenue']:,.0f} | ${metrics['matured_avg_ticket_on_converted']:,.0f} avg ticket")
+    L.append(f"- Fresh (still accruing): {metrics['fresh_opportunities']} opps | ${metrics['fresh_revenue']:,.0f} booked so far")
+    if not metrics["all_jobs_matured"]:
+        L.append("- Fresh-week revenue typically rises as ServiceTitan invoices settle; treat matured figures as the reliable run rate.")
     L.append("")
     L.append("## Daily Trend")
     L.append("")

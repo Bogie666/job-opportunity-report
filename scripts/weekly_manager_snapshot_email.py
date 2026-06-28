@@ -138,6 +138,17 @@ def render_html(wk: dict, ptd: dict, d_from: str, d_to: str) -> str:
             f'internal/Comfort Advisor sales, not snapshot-surfaced demand.</div>'
         )
 
+    # Maturity banner: flag when the week's revenue is still settling.
+    maturity_note = ""
+    if not wk["all_jobs_matured"]:
+        maturity_note = (
+            f'<div style="margin-top:12px;padding:10px 14px;background:#fff8e6;border:1px solid {GOLD};border-left:4px solid {GOLD};border-radius:8px;font-size:12px;color:#7a5b12;">'
+            f'<strong>Still accruing:</strong> {wk["fresh_opportunities"]} of this week\'s opportunities are inside the '
+            f'{wk["maturity_days"]}-day settle window. Matured (settled) revenue so far: '
+            f'<strong>${wk["matured_revenue"]:,.0f}</strong> across {wk["matured_opportunities"]} opps '
+            f'({pct(wk["matured_conversion_rate"])} conversion). Totals will rise as ServiceTitan invoices finalize.</div>'
+        )
+
     top_rows = []
     for r in wk["top_converted"]:
         top_rows.append(
@@ -169,6 +180,7 @@ def render_html(wk: dict, ptd: dict, d_from: str, d_to: str) -> str:
       {kpi_card("Avg Ticket", f'${wk["avg_ticket_on_converted"]:,.0f}')}
     </tr></table>
     {excl_note}
+    {maturity_note}
 
     <div style="font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:{MUTED};font-weight:600;margin:22px 0 8px;">By Job Type</div>
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid {LINE};border-radius:8px;border-collapse:separate;overflow:hidden;">
