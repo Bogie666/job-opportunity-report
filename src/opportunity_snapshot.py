@@ -87,7 +87,7 @@ def _money(x) -> str:
 
 
 EXCLUDED_TYPE_RE = re.compile(
-    r"\b(warranty|recall|callback|call\s*back|qc|quality\s*control|quality\s*check|redo|rework|return\s+visit)\b",
+    r"\b(warranty|recall|callback|call\s*back|qc|quality\s*control|quality\s*check|redo|rework|return\s+visit|follow[\s-]*up|tech[\s-]*lead)\b",
     re.I,
 )
 EXCLUDED_SUMMARY_RE = re.compile(
@@ -100,7 +100,7 @@ DEMAND_RE = re.compile(
     re.I,
 )
 VALUABLE_PHOTO_RE = re.compile(
-    r"\b(insulation|low\s+insulation|thin\s+insulation|kink(?:ed)?\s+duct(?:work)?|sag(?:ging)?\s+duct(?:work)?|duct(?:work)?\s+(?:leak|damage|disconnect|sealing|insulation|support|restricts)|duct\s+tape|deteriorat(?:e|ing)|dust\s+accumulation|dirty\s+(?:blower|return|coil|filter|duct)|biological|growth|rust|corrosion|water\s+(?:stain|damage)|murky\s+water|drain\s+(?:pan|pipe|residue)|overflow|unsafe\s+access|panel|breaker|double\s*tap|open\s+splice|water\s+heater|plumbing\s+leak)\b",
+    r"\b(insulation|low\s+insulation|thin\s+insulation|rafter|joist|framing\s+showing|kink(?:ed)?\s+duct(?:work)?|sag(?:ging)?\s+duct(?:work)?|duct(?:work)?\s+(?:leak|damage|disconnect|sealing|insulation|support|restricts)|duct\s+tape|deteriorat(?:e|ing)|dust\s+(?:accumulation|buildup|build-up)|dirty\s+(?:blower|blower\s+wheel|wheel|return|coil|filter|duct|plenum)|undersized\s+(?:1\s*['\"]?|one-inch|1-inch)?\s*filter|1\s*['\"]\s*filter|one-inch\s+filter|plenum|biological|growth|rust|rusty|corrosion|evaporator\s+coil|water\s+(?:stain|damage)|murky\s+water|drain\s+(?:pan|pipe|residue)|overflow|unsafe\s+access|panel|breaker|double\s*tap|open\s+splice|water\s+heater|plumbing\s+leak)\b",
     re.I,
 )
 

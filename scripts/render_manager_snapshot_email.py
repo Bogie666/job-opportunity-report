@@ -36,7 +36,12 @@ def render(records: list[dict], title: str = "Service Manager Opportunity Snapsh
         photos = snap.get("photo_findings") or rec.get("photo_findings") or []
         signals = snap.get("signals") or snap.get("bullets") or []
         pill_html = "".join(
-            f"<span style='display:inline-block;background:{RED_BG};color:{RED};border:1px solid #f5b7b1;border-radius:999px;padding:5px 9px;margin:0 6px 6px 0;font-size:12px;font-weight:700;'>⚠ {esc(flag)}</span>"
+            "<div style='display:block;background:#fff5f4;color:#9f241c;"
+            "border:1px solid #f2b8b5;border-left:4px solid #c0392b;"
+            "border-radius:8px;padding:7px 9px;margin:0 0 7px 0;"
+            "font-size:12px;line-height:1.35;font-weight:700;"
+            "word-break:normal;overflow-wrap:break-word;max-width:100%;box-sizing:border-box;'>"
+            f"<span style='color:#c0392b;font-weight:900;'>⚠</span> {esc(flag)}</div>"
             for flag in flags[:3]
         )
         photo_html = "".join(f"<li>{esc(p)}</li>" for p in photos[:3])

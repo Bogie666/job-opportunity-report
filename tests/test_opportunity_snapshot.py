@@ -102,12 +102,31 @@ def test_valuable_photo_findings_only_surface_specific_opportunities():
             {"finding": "General photo of condenser present", "indexes": [1], "confidence": "high"},
             {"finding": "Possible low insulation visible around attic furnace", "indexes": [3], "confidence": "medium"},
             {"finding": "Kinked ductwork restricts airflow", "indexes": [5], "confidence": "high"},
+            {"finding": "Dirty blower wheel with matted dust on fins", "indexes": [6], "confidence": "high"},
         ]
     }
     lines = valuable_photo_lines(vision)
-    assert len(lines) == 2
+    assert len(lines) == 3
     assert "image 3" in lines[0]
     assert "image 5" in lines[1]
+    assert "blower wheel" in lines[2]
+
+
+def test_valuable_photo_findings_include_manager_feedback_targets():
+    vision = {
+        "findings": [
+            {"finding": "Very dirty undersized 1-inch filter with bypass dust", "indexes": [2], "confidence": "high"},
+            {"finding": "Dust and biological growth-like spotting inside return plenum", "indexes": [4], "confidence": "medium"},
+            {"finding": "Rusty evaporator coil casing and corrosion at coil end plate", "indexes": [7], "confidence": "high"},
+            {"finding": "Rafter tops showing through thin attic insulation", "indexes": [9], "confidence": "medium"},
+        ]
+    }
+    lines = valuable_photo_lines(vision, max_items=5)
+    joined = "\n".join(lines).lower()
+    assert "1-inch filter" in joined or "undersized" in joined
+    assert "plenum" in joined and "biological" in joined
+    assert "rusty evaporator coil" in joined or "corrosion" in joined
+    assert "rafter" in joined and "insulation" in joined
 
 
 def test_demand_outweighs_similar_maintenance():

@@ -20,10 +20,18 @@ def _bundle(job_type: str, summary: str, estimates=None):
     }
 
 
-def test_scoring_excludes_warranty_recall_recent_install():
-    rec = score_bundle(_bundle("Demand - HVAC - Warranty", "Recent install not cooling"), False)
-    assert rec["excluded"] is True
-    assert rec["excluded_reason"] == "warranty/recall/QC/callback/recent-install"
+def test_scoring_excludes_warranty_recall_recent_install_follow_up_and_tech_lead():
+    examples = [
+        ("Demand - HVAC - Warranty", "Recent install not cooling"),
+        ("Follow Up - HVAC", "Follow up on prior call"),
+        ("HVAC Follow-Up", "Check prior recommendation"),
+        ("Tech Lead - HVAC", "Tech lead visit"),
+        ("HVAC Tech-Lead", "Manager/tech lead visit"),
+    ]
+    for job_type, summary in examples:
+        rec = score_bundle(_bundle(job_type, summary), False)
+        assert rec["excluded"] is True, job_type
+        assert rec["excluded_reason"] == "warranty/recall/QC/callback/recent-install/follow-up/tech-lead"
 
 
 def test_open_estimates_are_tie_breaker_not_primary_score():

@@ -22,6 +22,10 @@ load_env(str(ROOT / '.env'), override=True)
 IMAGE_EXTS = {'.jpg','.jpeg','.png','.webp','.gif','.bmp','.tif','.tiff'}
 MAX_PER_JOB = int(os.environ.get('PHOTO_MAX_PER_JOB','24'))
 MAX_PRIOR_JOBS = int(os.environ.get('PHOTO_MAX_PRIOR_JOBS','6'))
+SHEET_THUMB_W = int(os.environ.get('PHOTO_SHEET_THUMB_W', '520'))
+SHEET_THUMB_H = int(os.environ.get('PHOTO_SHEET_THUMB_H', '390'))
+SHEET_TILE_W = SHEET_THUMB_W + 40
+SHEET_TILE_H = SHEET_THUMB_H + 90
 
 def safe(s):
     return re.sub(r'[^A-Za-z0-9_.-]+','_', str(s or ''))[:80] or 'file'
@@ -55,16 +59,16 @@ def make_sheet(images, out_path):
     for rec in images:
         try:
             im=Image.open(rec['local_path']).convert('RGB')
-            im.thumbnail((320,240))
-            canvas=Image.new('RGB',(340,300),'white')
-            canvas.paste(im, ((340-im.width)//2, 34))
+            im.thumbnail((SHEET_THUMB_W,SHEET_THUMB_H))
+            canvas=Image.new('RGB',(SHEET_TILE_W,SHEET_TILE_H),'white')
+            canvas.paste(im, ((SHEET_TILE_W-im.width)//2, 34))
             d=ImageDraw.Draw(canvas)
-            d.rectangle((0,0,339,299), outline=(0,0,0), width=2)
+            d.rectangle((0,0,SHEET_TILE_W-1,SHEET_TILE_H-1), outline=(0,0,0), width=2)
             label=f"#{rec['index']} att {rec['attachment_id']} job {rec['job_id']}"
             d.text((8,8), label, fill=(0,0,0))
             source='CURRENT' if rec.get('source')=='current' else 'HISTORICAL'
-            d.text((8,260), source, fill=(180,0,0) if source=='CURRENT' else (0,0,180))
-            d.text((8,280), (rec.get('filename') or '')[:42], fill=(0,0,0))
+            d.text((8,SHEET_TILE_H-40), source, fill=(180,0,0) if source=='CURRENT' else (0,0,180))
+            d.text((8,SHEET_TILE_H-20), (rec.get('filename') or '')[:64], fill=(0,0,0))
             thumbs.append(canvas)
         except Exception as e:
             rec['sheet_error']=str(e)
@@ -72,9 +76,9 @@ def make_sheet(images, out_path):
         return None
     cols=2
     rows=(len(thumbs)+cols-1)//cols
-    sheet=Image.new('RGB',(cols*340,rows*300),(245,245,245))
+    sheet=Image.new('RGB',(cols*SHEET_TILE_W,rows*SHEET_TILE_H),(245,245,245))
     for i,t in enumerate(thumbs):
-        sheet.paste(t, ((i%cols)*340,(i//cols)*300))
+        sheet.paste(t, ((i%cols)*SHEET_TILE_W,(i//cols)*SHEET_TILE_H))
     out_path.parent.mkdir(parents=True, exist_ok=True)
     sheet.save(out_path, quality=92)
     return str(out_path)

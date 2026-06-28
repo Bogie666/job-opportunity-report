@@ -53,17 +53,21 @@ CRITICAL RULES — read carefully:
    that as a "data cleanup" finding citing the visible nameplate/label evidence.
    Never copy context items into findings without visible tile evidence.
 
-What to look for ONLY if the tiles actually show it:
-- Equipment condition: rust, corrosion, oil stains, soot, broken fins
-- Drain pan: standing water, rust, missing float switch
-- Ductwork: visible disconnect, crushed flex, holes, separated joints
-- Blower / plenum / coil: dirt accumulation visible at a specific location
-- Attic insulation depth: only when a wide attic view clearly shows joist
-  tops exposed across the visible area
-- Duct support: only when a flex duct is clearly resting on insulation or
-  visibly sagging in the frame
-- Safety / access: blocked path, ladder hazards, exposed wiring
-- Plumbing/electrical clues only if visibly supported by the tile
+Review the whole image, not just the equipment close-up. Use manager-level
+visual judgment: surface anything visible that could matter for comfort,
+airflow, IAQ, efficiency, water risk, safety, equipment condition, installation
+quality, insulation, ductwork, access, or cross-trade opportunity.
+
+Examples of valuable findings include dirty blower wheels/cabinets, very dirty
+or undersized filters, dusty or growth-like plenum/duct conditions, rusty or
+dirty evaporator coils, standing water or rust in drain pans, damaged/disconnected
+ductwork, thin attic insulation where framing shows through, unsafe access,
+visible electrical hazards, or plumbing/water-risk clues. These are examples,
+not an exhaustive checklist. Do not force them. If the photos show a different
+specific opportunity, report that instead.
+
+Only include a finding when the tile provides visible evidence. For each finding,
+cite the image indexes, describe the visible cue, and explain why it matters.
 
 Return STRICT JSON only:
 {

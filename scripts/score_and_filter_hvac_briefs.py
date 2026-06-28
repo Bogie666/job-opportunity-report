@@ -10,7 +10,7 @@ the visits so the weights below can be calibrated against reality.
 Heuristics (tweakable — see src/opportunity_flags.py for the age-tier rules):
 - Equipment past per-class replacement threshold → +25 (urgent tier → +35)
 - Home-age tier: 10-30 yrs → +5, 30-45 yrs → +10, 45+ yrs → +15
-- Demand/problem call intent → +20
+- Demand/problem call intent → +25 and tie-breaks ahead of maintenance
 - Active membership → +10
 - Open estimate context → +0 to +3 tie-breaker only
 - Sold estimate history ≥ $10k → +15
@@ -100,8 +100,8 @@ def score_bundle(bundle, photos_have_sheet):
 
     intent_type = call_intent_type(job_type, summary)
     if intent_type == "demand":
-        score += 20
-        drivers.append("demand/problem call (+20)")
+        score += 25
+        drivers.append("demand/problem call (+25)")
     elif intent_type == "maintenance":
         drivers.append("maintenance call (+0, needs supporting signals)")
 
@@ -184,7 +184,7 @@ def score_bundle(bundle, photos_have_sheet):
         "active_membership": active_m,
         "call_intent": intent_type,
         "excluded": excluded,
-        "excluded_reason": "warranty/recall/QC/callback/recent-install" if excluded else "",
+        "excluded_reason": "warranty/recall/QC/callback/recent-install/follow-up/tech-lead" if excluded else "",
     }
 
 
@@ -214,7 +214,8 @@ def main(run_dir: Path, manifest_path: Path, threshold: int = 35, top_n: int = 1
             continue
         scored.append(rec)
 
-    scored.sort(key=lambda r: (-r["score"], r["job_number"]))
+    intent_priority = {"demand": 0, "standard": 1, "maintenance": 2}
+    scored.sort(key=lambda r: (-r["score"], intent_priority.get(r.get("call_intent"), 1), r["job_number"]))
 
     out_dir = run_dir.parent / (run_dir.name + "_scoring")
     out_dir.mkdir(parents=True, exist_ok=True)
