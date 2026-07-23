@@ -14,9 +14,14 @@ import re
 import subprocess
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+
+try:
+    from zoneinfo import ZoneInfo
+except Exception:  # pragma: no cover
+    ZoneInfo = None  # type: ignore
 
 import requests
 
@@ -41,6 +46,50 @@ OUT_DIR = ROOT / "out"
 LOG_DIR = ROOT / "logs"
 OUTCOMES_DIR = ROOT / "data" / "outcomes"
 FLAGGED_LEDGER = OUTCOMES_DIR / "manager_snapshot_flagged_jobs.csv"
+SENT_MARKER_DIR = OUTCOMES_DIR / "sent_markers"
+LOCAL_TZ = "America/Chicago"
+
+
+def target_date_label(days_ahead: int) -> str:
+    """The local calendar date this run is FOR (same-day=today, 1=tomorrow).
+
+    Computed independently of the ServiceTitan pull so the idempotency guard can
+    run before any expensive work.
+    """
+    now = datetime.now(timezone.utc)
+    if ZoneInfo is not None:
+        try:
+            now = now.astimezone(ZoneInfo(LOCAL_TZ))
+        except Exception:
+            pass
+    return (now + timedelta(days=days_ahead)).strftime("%Y-%m-%d")
+
+
+def sent_marker_path(date_label: str) -> Path:
+    return SENT_MARKER_DIR / f"sent_{date_label}.json"
+
+
+def already_sent(date_label: str) -> dict[str, Any] | None:
+    p = sent_marker_path(date_label)
+    if not p.exists():
+        return None
+    try:
+        return json.loads(p.read_text())
+    except Exception:
+        return {"corrupt": True}
+
+
+def write_sent_marker(date_label: str, *, run_id: str, delivery: dict[str, Any], subject: str, recipients: list[str]) -> None:
+    SENT_MARKER_DIR.mkdir(parents=True, exist_ok=True)
+    sent_marker_path(date_label).write_text(json.dumps({
+        "date_label": date_label,
+        "run_id": run_id,
+        "sent_at_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "subject": subject,
+        "recipients": recipients,
+        "sendgrid_status_code": delivery.get("status_code"),
+        "sendgrid_x_message_id": delivery.get("x_message_id"),
+    }, indent=2, default=str))
 
 
 def load_all_env() -> None:
@@ -308,11 +357,28 @@ def main() -> int:
     ap.add_argument("--recipients", default=os.environ.get("MANAGER_SNAPSHOT_RECIPIENTS", DEFAULT_RECIPIENTS))
     ap.add_argument("--no-send", action="store_true")
     ap.add_argument("--skip-vision", action="store_true")
+    ap.add_argument("--force", action="store_true", help="Bypass the once-per-day sent guard and send anyway")
     args = ap.parse_args()
 
     load_all_env()
     OUT_DIR.mkdir(exist_ok=True)
     LOG_DIR.mkdir(exist_ok=True)
+
+    # Idempotency guard: only one successful send per local target date, no matter
+    # how many times an LLM-driven cron agent invokes this pipeline. Checked BEFORE
+    # the expensive ServiceTitan pull / photo fetch / vision run.
+    guard_date = target_date_label(args.days_ahead)
+    if not args.no_send and not args.force:
+        prior = already_sent(guard_date)
+        if prior:
+            print(json.dumps({
+                "skipped": True,
+                "reason": "already_sent_today",
+                "date_label": guard_date,
+                "prior_send": prior,
+                "hint": "Use --force to override the once-per-day guard.",
+            }, indent=2, default=str))
+            return 0
 
     tech_dir = ROOT / "data" / "tech_briefs"
     before = {p for p in tech_dir.iterdir() if p.is_dir()} if tech_dir.exists() else set()
@@ -369,6 +435,9 @@ def main() -> int:
     delivery = {"skipped": True, "reason": "--no-send"}
     if not args.no_send:
         delivery = send_email(html, subject, recipients)
+        # Mark this local target date as sent so re-invocations skip early.
+        if delivery.get("status_code") and delivery["status_code"] < 300:
+            write_sent_marker(guard_date, run_id=stamp, delivery=delivery, subject=subject, recipients=recipients)
 
     summary = {
         "run_dir": str(run_dir),
