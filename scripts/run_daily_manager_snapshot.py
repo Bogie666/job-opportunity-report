@@ -41,7 +41,7 @@ from score_and_filter_hvac_briefs import main as score_jobs  # noqa: E402
 from opportunity_snapshot import build_snapshot  # noqa: E402
 from render_manager_snapshot_email import render as render_email  # noqa: E402
 
-DEFAULT_RECIPIENTS = "anthony@lexairconditioning.com,necey@lexairconditioning.com,john@lexairconditioning.com,ryan@lexairconditioning.com"
+DEFAULT_RECIPIENTS = "anthony@lexairconditioning.com,necey@lexairconditioning.com,john@lexairconditioning.com,ryan@lexairconditioning.com,cory@lexairconditioning.com"
 OUT_DIR = ROOT / "out"
 LOG_DIR = ROOT / "logs"
 OUTCOMES_DIR = ROOT / "data" / "outcomes"
@@ -111,6 +111,27 @@ def newest_dir(parent: Path, before: set[Path] | None = None) -> Path:
     if not dirs:
         raise RuntimeError(f"No run dirs found in {parent}")
     return max(dirs, key=lambda p: p.stat().st_mtime)
+
+
+def make_empty_run_dir(date_label: str) -> Path:
+    """Create a valid empty tech-brief run when ServiceTitan returns no matching jobs.
+
+    The downstream photo/scoring/render/email steps are intentionally able to run
+    with zero dossiers, but the dossier puller exits without creating a run
+    directory when there are no jobs. This keeps the daily manager snapshot
+    pipeline end-to-end/idempotent even on no-HVAC-schedule days.
+    """
+    tech_dir = ROOT / "data" / "tech_briefs"
+    tech_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    run_dir = tech_dir / f"{stamp}_empty"
+    run_dir.mkdir(parents=True, exist_ok=False)
+    run_dir.joinpath("index.json").write_text(json.dumps({
+        "window_start_local": f"{date_label}T00:00:00-05:00",
+        "results": [],
+        "note": "No matching scheduled HVAC jobs returned by ServiceTitan for this run.",
+    }, indent=2))
+    return run_dir
 
 
 def run_cmd(cmd: list[str], *, timeout: int = 1800) -> None:
@@ -384,7 +405,9 @@ def main() -> int:
     before = {p for p in tech_dir.iterdir() if p.is_dir()} if tech_dir.exists() else set()
 
     pull_dossiers(days_ahead=args.days_ahead, max_jobs=args.max_jobs, trade_filter="hvac")
-    run_dir = newest_dir(tech_dir, before)
+    after = {p for p in tech_dir.iterdir() if p.is_dir()} if tech_dir.exists() else set()
+    new_dirs = after - before
+    run_dir = newest_dir(tech_dir, before) if new_dirs else make_empty_run_dir(guard_date)
     print(f"RUN_DIR={run_dir}")
 
     run_cmd([sys.executable, "scripts/fetch_job_photos.py", str(run_dir)], timeout=3600)
