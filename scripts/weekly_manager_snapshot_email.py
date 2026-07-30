@@ -57,7 +57,7 @@ INK = "#1a1a1a"
 MUTED = "#6b7280"
 LINE = "#e5e7eb"
 
-DEFAULT_RECIPIENTS = "ryan@lexairconditioning.com,cory@lexairconditioning.com"
+DEFAULT_RECIPIENTS = "ryan@lexairconditioning.com,cory@lexairconditioning.com,anthony@lexairconditioning.com"
 
 
 def load_all_env() -> None:
