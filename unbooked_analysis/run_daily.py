@@ -111,6 +111,12 @@ def run(tenant_key: str, date_str: str | None, dry_run: bool, limit: int | None)
         else:
             c.outcome = "still_unbooked"
 
+        # Bucket A was never a booking attempt (existing cust / warranty / spam / vendor).
+        # "Still unbooked" implies a miss that isn't real — relabel to not_a_true_lead.
+        # (If an A call actually booked/recovered we keep that; it's still informative.)
+        if c.reason_bucket == "A" and c.outcome == "still_unbooked":
+            c.outcome = "not_a_true_lead"
+
     booked = sum(1 for c in unbooked if c.outcome == "booked_on_call")
     recovered = sum(1 for c in unbooked if c.outcome == "recovered")
     callback_unverified = sum(1 for c in unbooked if c.outcome == "callback_unverified")

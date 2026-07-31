@@ -34,6 +34,7 @@ def _outcome_badge(o: str | None) -> str:
         "recovered": '<span style="color:#b8860b;font-weight:600;">🟡 Recovered (confirmed)</span>',
         "callback_unverified": '<span style="color:#c77800;font-weight:600;">🟠 Callback made — unverified</span>',
         "still_unbooked": '<span style="color:#c41820;font-weight:600;">🔴 Still unbooked</span>',
+        "not_a_true_lead": '<span style="color:#8a99a8;font-weight:600;">⚪ Not a true lead</span>',
     }.get(o or "", o or "—")
 
 
