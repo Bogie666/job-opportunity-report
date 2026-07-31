@@ -136,9 +136,31 @@ class ServiceTitanCallSource:
                     if call.received_at < created <= window_end:
                         return {"tier": "customer_job", "job_number": str(j.get("jobNumber")),
                                 "created_on": j.get("createdOn"),
+                                "confidence": "confirmed",
                                 "note": f"customer booked a job within {window_hours}h of the call"}
 
+        # Tier 2b: no customer on the call -> resolve caller phone to a ST customer, then
+        # check that customer for a job created within the window. Upgrades what used to be
+        # a weak "outbound callback" guess into a CONFIRMED recovery with a real job number.
+        if not call.customer_id and call.from_number:
+            cust_id = self._customer_id_by_phone(call.from_number)
+            if cust_id:
+                r = self.client.get("/jpm/v2/tenant/{tenant}/jobs",
+                                     params={"customerId": int(cust_id), "pageSize": 50,
+                                             "createdOnOrAfter":
+                                             call.received_at.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")})
+                if r.status_code == 200:
+                    for j in r.json().get("data", []):
+                        created = _parse_dt(j.get("createdOn"))
+                        if call.received_at < created <= window_end:
+                            return {"tier": "phone_customer_job", "job_number": str(j.get("jobNumber")),
+                                    "created_on": j.get("createdOn"),
+                                    "confidence": "confirmed",
+                                    "note": f"caller (matched by phone) booked a job within {window_hours}h"}
+
         # Tier 3: phone fallback — outbound callback to the same number after the call.
+        # Weakest signal: proves staff called back, NOT that a job booked. Kept as a
+        # separate low-confidence outcome so it never inflates the confirmed-recovery count.
         r = self.client.get("/telecom/v2/tenant/{tenant}/calls",
                              params={"pageSize": 200,
                                      "createdOnOrAfter":
@@ -151,7 +173,20 @@ class ServiceTitanCallSource:
                 if (lc.get("direction") == "Outbound"
                         and _digits(lc.get("to")) == call.from_number):
                     return {"tier": "outbound_callback",
+                            "confidence": "unverified",
                             "note": "staff placed an outbound callback to this number "
-                                    "(booking not linked; verify manually)",
+                                    "(no linked job found; verify manually)",
                             "low_confidence": True}
+        return None
+
+    def _customer_id_by_phone(self, phone_digits: str) -> str | None:
+        """Resolve a 10-digit phone to a ServiceTitan customer id, or None."""
+        if not phone_digits:
+            return None
+        r = self.client.get("/crm/v2/tenant/{tenant}/customers",
+                            params={"phone": phone_digits, "pageSize": 1})
+        if r.status_code == 200:
+            data = r.json().get("data", [])
+            if data:
+                return str(data[0].get("id"))
         return None

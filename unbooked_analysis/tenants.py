@@ -38,6 +38,10 @@ TENANTS: list[Tenant] = [
         timezone="America/Chicago",
         reconcile_window_hours=72,
         brand_filter=None,          # v1: ALL brands in the tenant
+        prefilter_categories=[],    # Ryan 2026-07-31: transcribe EVERYTHING (no cheap
+                                    # noise pre-filter). ST "Existing Customer" tag is now
+                                    # surfaced but the call is still transcribed + AI-classified,
+                                    # so nothing gets buried on a mis-tag.
     ),
 ]
 

@@ -31,7 +31,8 @@ def _fmt_phone(d: str) -> str:
 def _outcome_badge(o: str | None) -> str:
     return {
         "booked_on_call": '<span style="color:#0a7d33;font-weight:600;">✅ Booked on call</span>',
-        "recovered": '<span style="color:#b8860b;font-weight:600;">🟡 Recovered</span>',
+        "recovered": '<span style="color:#b8860b;font-weight:600;">🟡 Recovered (confirmed)</span>',
+        "callback_unverified": '<span style="color:#c77800;font-weight:600;">🟠 Callback made — unverified</span>',
         "still_unbooked": '<span style="color:#c41820;font-weight:600;">🔴 Still unbooked</span>',
     }.get(o or "", o or "—")
 
@@ -41,7 +42,8 @@ def build_brief(display_name: str, day_label: str, calls: list[Call]) -> tuple[s
     # Outcome tallies
     total = len(calls)
     still = [c for c in calls if c.outcome == "still_unbooked"]
-    recovered = [c for c in calls if c.outcome == "recovered"]
+    recovered = [c for c in calls if c.outcome == "recovered"]          # confirmed, has job #
+    callback_unverified = [c for c in calls if c.outcome == "callback_unverified"]
     booked = [c for c in calls if c.outcome == "booked_on_call"]
 
     # True leaks = still-unbooked in B-E (A is noise)
@@ -118,14 +120,17 @@ def build_brief(display_name: str, day_label: str, calls: list[Call]) -> tuple[s
   {kpi("Unbooked total", total, "#5a6b7d")}
   {kpi("True leaks", len(true_leaks), "#c41820")}
   {kpi("Process failures", len(process_leaks), "#8b0000")}
-  {kpi("Recovered", len(recovered), "#b8860b")}
+  {kpi("Recovered (confirmed)", len(recovered), "#b8860b")}
+  {kpi("Callback — unverified", len(callback_unverified), "#c77800")}
   {kpi("Noise (excl.)", len(by_bucket.get("A", [])), "#8a99a8")}
 </tr></table>
 <p style="font-size:13px;color:#555;margin:6px 0;">
   <b>{len(true_leaks)}</b> genuinely lost opportunities after reconciliation.
   <b>{len(process_leaks)}</b> were our own process failures (recoverable).
-  <b>{len(recovered)}</b> calls looked unbooked but a job was booked/called back within the window
-  (not counted as leaks). <b>{len(booked)}</b> booked directly on the call.
+  <b>{len(recovered)}</b> looked unbooked but a job was <b>confirmed booked</b> within the window
+  (real job #, not counted as leaks). <b>{len(callback_unverified)}</b> had a staff callback but
+  <b>no linked job could be found</b> — treat as open follow-ups to verify, not confirmed wins.
+  <b>{len(booked)}</b> booked directly on the call.
 </p>
 {hot_block}
 {sections}

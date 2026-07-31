@@ -90,14 +90,20 @@ def run(tenant_key: str, date_str: str | None, dry_run: bool, limit: int | None)
 
     # 5. Reconcile outcomes for ALL unbooked (even prefiltered — a noise call can
     #    still have booked; but only B-E count as leaks anyway).
+    #    Outcomes: booked_on_call | recovered (confirmed w/ job#) | callback_unverified
+    #              (staff called back, no linked job — verify manually) | still_unbooked
     for c in unbooked:
         rec = src.find_recovery(c, tenant.reconcile_window_hours)
         if c.job_number:
             c.outcome = "booked_on_call"
             c.recovered_job_number = c.job_number
         elif rec:
-            if rec.get("tier") == "direct_link":
+            tier = rec.get("tier")
+            if tier == "direct_link":
                 c.outcome = "booked_on_call"
+            elif rec.get("confidence") == "unverified":
+                # phone-only callback, no job link -> its own bucket, NOT a confirmed recovery
+                c.outcome = "callback_unverified"
             else:
                 c.outcome = "recovered"
             c.recovered_job_number = rec.get("job_number")
@@ -107,8 +113,10 @@ def run(tenant_key: str, date_str: str | None, dry_run: bool, limit: int | None)
 
     booked = sum(1 for c in unbooked if c.outcome == "booked_on_call")
     recovered = sum(1 for c in unbooked if c.outcome == "recovered")
+    callback_unverified = sum(1 for c in unbooked if c.outcome == "callback_unverified")
     still = sum(1 for c in unbooked if c.outcome == "still_unbooked")
-    print(f"  outcomes: booked_on_call={booked} recovered={recovered} still_unbooked={still}")
+    print(f"  outcomes: booked_on_call={booked} recovered={recovered} "
+          f"callback_unverified={callback_unverified} still_unbooked={still}")
 
     # 6. Build brief.
     subject, html = B.build_brief(tenant.display_name, day_label, unbooked)
